@@ -1,0 +1,12 @@
+[project]
+name = "kernel-func-finder"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["capstone"]
+
+[project.scripts]
+kff = "kernel_func_finder.__main__:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
