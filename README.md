@@ -3,7 +3,9 @@
 ```
 grep "T qcom_scm_update_rollback_version" /proc/kallsyms
 ```
-
+```
+grep "qcom_scm_update_rollback_version" /proc/kallsyms
+```
 A tool to detect whether a kernel image contains specific functions.
 Designed for verifying if kernel-level rollback fuse mechanisms exist in Android boot images.
 
