@@ -199,7 +199,7 @@ def list_elf_all(ko_data):
     return scan_elf_symbols(ko_data)
 
 
-def scan_ko_file(path, func, list_flag, extract_func):
+def scan_ko_file(path, func, list_flag):
     with open(path, "rb") as f:
         data = f.read(8 * 1024 * 1024)
     if list_flag:
@@ -215,39 +215,13 @@ def scan_ko_file(path, func, list_flag, extract_func):
         for name, val, sz, info, _ in syms:
             typ = ["NOTYPE", "OBJECT", "FUNC"][info & 0xF] if (info & 0xF) < 3 else f"UNK({info&0xF})"
             print(f"  {typ} value=0x{val:x} size={sz}")
-            if extract_func and sz > 0 and val > 0:
-                func_start = val
-                func_size = sz
-                hexdump(data, func_start, func_size)
-                disasm(data, func_start, func_size)
         return True
     if func:
         print(f"{os.path.basename(path)}: {func} NOT FOUND")
     return False
 
 
-def hexdump(data, start, length):
-    for off in range(start, min(start + length, len(data)), 16):
-        chunk = data[off : off + 16]
-        addr = off
-        print(f"  {addr:016x}:  {' '.join(f'{b:02x}' for b in chunk)}")
-
-
-def disasm(data, start, length):
-    try:
-        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-    except ImportError:
-        print("  (capstone not installed)")
-        return
-    code = data[start : start + length]
-    if not code:
-        return
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-    for insn in md.disasm(code, start):
-        print(f"  {insn.address:016x}:  {insn.mnemonic}\t{insn.op_str}")
-
-
-def scan_ko_from_ramdisk(entries, func, list_flag, extract_func):
+def scan_ko_from_ramdisk(entries, func, list_flag):
     found_any = False
     for name, size, content in entries:
         if not name.endswith(".ko"):
@@ -269,13 +243,10 @@ def scan_ko_from_ramdisk(entries, func, list_flag, extract_func):
             for sym_name, val, sz, info, _ in syms:
                 typ = ["NOTYPE", "OBJECT", "FUNC"][info & 0xF] if (info & 0xF) < 3 else f"UNK({info&0xF})"
                 print(f"    {typ} value=0x{val:x} size={sz}")
-                if extract_func and sz > 0 and val > 0:
-                    hexdump(content, val, sz)
-                    disasm(content, val, sz)
     return found_any
 
 
-def mount_and_scan(path, func, list_flag, extract_func):
+def mount_and_scan(path, func, list_flag):
     mnt = tempfile.mkdtemp()
     rc = subprocess.run(["sudo", "mount", "-o", "loop,ro", path, mnt],
                         capture_output=True, timeout=15)
@@ -310,15 +281,12 @@ def mount_and_scan(path, func, list_flag, extract_func):
                 for sym_name, val, sz, info, _ in syms:
                     typ = ["NOTYPE", "OBJECT", "FUNC"][info & 0xF] if (info & 0xF) < 3 else f"UNK({info&0xF})"
                     print(f"    {typ} value=0x{val:x} size={sz}")
-                    if extract_func and sz > 0 and val > 0:
-                        hexdump(content, val, sz)
-                        disasm(content, val, sz)
     subprocess.run(["sudo", "umount", mnt], capture_output=True, timeout=10)
     os.rmdir(mnt)
     return found_any
 
 
-def scan_ramdisk_for_func(data, func, list_flag, extract_func):
+def scan_ramdisk_for_func(data, func, list_flag):
     lz4 = _find_lz4_frames(data)
     if not lz4:
         return None
@@ -326,10 +294,10 @@ def scan_ramdisk_for_func(data, func, list_flag, extract_func):
     entries = parse_cpio(dec)
     if not entries:
         return None
-    return scan_ko_from_ramdisk(entries, func, list_flag, extract_func)
+    return scan_ko_from_ramdisk(entries, func, list_flag)
 
 
-def scan_kallsyms(data, func, list_flag, extract_func):
+def scan_kallsyms(data, func, list_flag):
     from .kallsyms import analyze_kallsyms, decompress_symbol_name, get_symbol_offset, parse_all_symbols
 
     info = analyze_kallsyms(data)
@@ -354,10 +322,6 @@ def scan_kallsyms(data, func, list_flag, extract_func):
                     size = nxt - offset
                     break
             print(f"  {sym_type} 0x{offset:08x} ({size:5d}) {name}")
-            if extract_func and size > 0:
-                base = info.kernel_base
-                hexdump(data, offset, size)
-                disasm(data, offset, size)
 
     pos = info.names_offset
     for i in range(info.num_syms):

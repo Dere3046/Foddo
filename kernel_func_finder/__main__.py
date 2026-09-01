@@ -28,28 +28,7 @@ def detect(path):
     return "kernel"
 
 
-def hexdump(data, start, length):
-    end = min(start + length, len(data))
-    for off in range(start, end, 16):
-        chunk = data[off:off + 16]
-        print(f"  {off:016x}:  {' '.join(f'{b:02x}' for b in chunk)}")
-
-
-def disasm(data, start, length):
-    try:
-        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-    except ImportError:
-        print("  (capstone not installed)")
-        return
-    code = data[start:start + length]
-    if not code:
-        return
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-    for insn in md.disasm(code, start):
-        print(f"  {insn.address:016x}:  {insn.mnemonic}\t{insn.op_str}")
-
-
-def scan_kallsyms(data, func, list_flag, extract_func):
+def scan_kallsyms(data, func, list_flag):
     from .kallsyms import (analyze_kallsyms, decompress_symbol_name,
                            get_symbol_offset, parse_all_symbols)
     info = analyze_kallsyms(data)
@@ -73,17 +52,12 @@ def scan_kallsyms(data, func, list_flag, extract_func):
                     size = nxt - offset
                     break
             print(f"FOUND: {sym_type} 0x{offset:08x} ({size:5d}) {name}")
-            if extract_func and size > 0:
-                print()
-                hexdump(data, offset, size)
-                print()
-                disasm(data, offset, size)
             return True
     print(f"  kernel: {func} NOT FOUND")
     return False
 
 
-def handle_bootimg(path, func, list_flag, extract_func):
+def handle_bootimg(path, func, list_flag):
     found = False
     with open(path, "rb") as f:
         hdr = f.read(1648)
@@ -94,7 +68,7 @@ def handle_bootimg(path, func, list_flag, extract_func):
     if kernel_sz > 0:
         try:
             raw = unpack_kernel(path)
-            if scan_kallsyms(raw, func, list_flag, extract_func):
+            if scan_kallsyms(raw, func, list_flag):
                 found = True
         except Exception:
             pass
@@ -109,9 +83,9 @@ def handle_bootimg(path, func, list_flag, extract_func):
             entries = parse_cpio(dec)
             if list_flag:
                 print(f"  init_boot ramdisk:")
-                scan_ko_from_ramdisk(entries, func, list_flag, extract_func)
+                scan_ko_from_ramdisk(entries, func, list_flag)
                 return True
-            if scan_ko_from_ramdisk(entries, func, list_flag, extract_func):
+            if scan_ko_from_ramdisk(entries, func, list_flag):
                 found = True
 
     if not list_flag and not found and func:
@@ -119,7 +93,7 @@ def handle_bootimg(path, func, list_flag, extract_func):
     return found
 
 
-def handle_vendor_boot(path, func, list_flag, extract_func):
+def handle_vendor_boot(path, func, list_flag):
     with open(path, "rb") as f:
         payload = f.read()[4096:]
     if not _find_lz4_frames(payload):
@@ -131,27 +105,27 @@ def handle_vendor_boot(path, func, list_flag, extract_func):
         print(f"  no cpio entries")
         return False
 
-    found = scan_ko_from_ramdisk(entries, func, list_flag, extract_func)
-    if not found and not list_flag and not extract_func and func:
+    found = scan_ko_from_ramdisk(entries, func, list_flag)
+    if not found and not list_flag and func:
         print(f"  {func}: NOT FOUND")
     return found
 
 
-def handle_ext(path, func, list_flag, extract_func):
-    found = mount_and_scan(path, func, list_flag, extract_func)
+def handle_ext(path, func, list_flag):
+    found = mount_and_scan(path, func, list_flag)
     if not list_flag and not found and func:
         print(f"  {func}: NOT FOUND")
     return found
 
 
-def handle_elf(path, func, list_flag, extract_func):
-    return scan_ko_file(path, func, list_flag, extract_func)
+def handle_elf(path, func, list_flag):
+    return scan_ko_file(path, func, list_flag)
 
 
-def handle_kernel(path, func, list_flag, extract_func):
+def handle_kernel(path, func, list_flag):
     try:
         raw = unpack_kernel(path)
-        return scan_kallsyms(raw, func, list_flag, extract_func)
+        return scan_kallsyms(raw, func, list_flag)
     except Exception as e:
         print(f"  kernel parse error: {e}")
         return False
@@ -163,16 +137,9 @@ def main():
     parser.add_argument("--func", default=TARGET, help="function name to search")
     parser.add_argument("--list", nargs="?", const=True, default=False,
                         help="list symbols (optional pattern)")
-    parser.add_argument("--extract", metavar="FUNC", nargs="?", const=True, default=False,
-                        help="extract and disasm function")
     args = parser.parse_args()
 
     func = args.func
-    extract_func = False
-    if args.extract:
-        extract_func = args.extract
-        if args.extract is not True:
-            func = args.extract
 
     for path in args.files:
         print(f"==> {os.path.basename(path)}")
@@ -181,7 +148,7 @@ def main():
              "vendor_boot": handle_vendor_boot, "ext": handle_ext,
              "erofs": handle_ext, "kernel": handle_kernel}.get(typ)
         if h:
-            h(path, func, args.list, extract_func)
+            h(path, func, args.list)
         else:
             print(f"  unknown type")
 
